@@ -40,9 +40,13 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(updatedStock);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    let errorMessage = 'An unknown error occurred';
+    if (err instanceof Error) {
+      errorMessage = err.message;
+    }
     return new NextResponse(
-      JSON.stringify({ error: 'Failed to update stock', details: err.message }),
+      JSON.stringify({ error: 'Failed to update stock', details: errorMessage }),
       { status: 500 }
     );
   }

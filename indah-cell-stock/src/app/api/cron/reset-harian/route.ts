@@ -50,9 +50,13 @@ export async function GET() {
 
     return NextResponse.json({ message: "Stock reset successfully for today.", data: todayStock });
 
-  } catch (err: any) {
+  } catch (err: unknown) {
+    let errorMessage = 'An unknown error occurred';
+    if (err instanceof Error) {
+      errorMessage = err.message;
+    }
     return new NextResponse(
-      JSON.stringify({ error: 'Cron job failed', details: err.message }),
+      JSON.stringify({ error: 'Cron job failed', details: errorMessage }),
       { status: 500 }
     );
   }

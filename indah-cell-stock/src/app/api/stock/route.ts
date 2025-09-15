@@ -17,9 +17,13 @@ export async function GET() {
     }
 
     return NextResponse.json(data);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    let errorMessage = 'An unknown error occurred';
+    if (err instanceof Error) {
+      errorMessage = err.message;
+    }
     return new NextResponse(
-      JSON.stringify({ error: 'Failed to fetch stock data', details: err.message }),
+      JSON.stringify({ error: 'Failed to fetch stock data', details: errorMessage }),
       { status: 500 }
     );
   }

@@ -19,8 +19,12 @@ export default function HomePage() {
       }
       const data: Stock[] = await res.json();
       setStockData(data);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unknown error occurred');
+      }
     } finally {
       setLoading(false);
     }
@@ -55,8 +59,12 @@ export default function HomePage() {
         throw new Error('Gagal memperbarui stok');
       }
       // The realtime subscription will handle the final state confirmation
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unknown error occurred');
+      }
     }
   };
 
