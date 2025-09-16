@@ -73,7 +73,7 @@ export default function HomePage() {
       if (!res.ok) {
         throw new Error('Gagal memperbarui stok di server.');
       }
-    } catch (error) {
+    } catch {
         setError('Gagal memperbarui stok. Memulihkan data.');
         // Revert on failure
         setStockData(originalStock);
@@ -94,7 +94,7 @@ export default function HomePage() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'stock' },
-        (payload) => {
+        (_payload) => {
           fetchStock();
         }
       )

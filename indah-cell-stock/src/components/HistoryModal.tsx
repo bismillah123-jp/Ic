@@ -8,7 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/Dialog';
-import { Button } from './ui/Button';
 
 interface HistoryModalProps {
   isOpen: boolean;
