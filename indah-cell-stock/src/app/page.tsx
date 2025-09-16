@@ -3,22 +3,42 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { Stock } from '@/types';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { HistoryModal } from '@/components/HistoryModal';
 
 export default function HomePage() {
   const [stockData, setStockData] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch initial stock data
+  // Modal State
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [currentStockId, setCurrentStockId] = useState<number | null>(null);
+  const [currentBranchName, setCurrentBranchName] = useState<string | null>(null);
+
+
   const fetchStock = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/stock');
-      if (!res.ok) {
-        throw new Error('Gagal mengambil data stok');
-      }
-      const data: Stock[] = await res.json();
-      setStockData(data);
+      const { data, error } = await supabase
+        .from('stock')
+        .select('*')
+        .order('tanggal', { ascending: false })
+        .limit(2);
+
+      if (error) throw error;
+
+      const latestData = Array.from(new Map(data.map(item => [item.nama_cabang, item])).values());
+      setStockData(latestData);
+
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -30,8 +50,8 @@ export default function HomePage() {
     }
   };
 
-  // Handle stock updates
   const handleUpdateStock = async (id: number, amount: number) => {
+    const originalStock = [...stockData];
     const currentStock = stockData.find(s => s.id === id);
     if (!currentStock) return;
 
@@ -42,6 +62,7 @@ export default function HomePage() {
       )
     );
 
+    // Call the backend API
     try {
       const res = await fetch('/api/stock/update', {
         method: 'POST',
@@ -50,108 +71,141 @@ export default function HomePage() {
       });
 
       if (!res.ok) {
+        throw new Error('Gagal memperbarui stok di server.');
+      }
+    } catch (error) {
+        setError('Gagal memperbarui stok. Memulihkan data.');
         // Revert on failure
-        setStockData(prevData =>
-          prevData.map(s =>
-            s.id === id ? { ...s, stok_sekarang: s.stok_sekarang - amount } : s
-          )
-        );
-        throw new Error('Gagal memperbarui stok');
-      }
-      // The realtime subscription will handle the final state confirmation
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('An unknown error occurred');
-      }
+        setStockData(originalStock);
     }
   };
 
-  // Initial fetch and real-time subscription
+  const openHistoryModal = (stockId: number, branchName: string) => {
+    setCurrentStockId(stockId);
+    setCurrentBranchName(branchName);
+    setIsHistoryModalOpen(true);
+  };
+
   useEffect(() => {
     fetchStock();
 
     const channel = supabase
-      .channel('stock_changes')
-      .on<Stock>(
+      .channel('stock-changes')
+      .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'stock' },
+        { event: '*', schema: 'public', table: 'stock' },
         (payload) => {
-          // Update state with the new data from the payload
-          setStockData(currentData =>
-            currentData.map(item =>
-              item.id === payload.new.id ? payload.new : item
-            )
-          );
+          fetchStock();
         }
       )
       .subscribe();
 
-    // Cleanup subscription on component unmount
     return () => {
       supabase.removeChannel(channel);
     };
   }, []);
 
+  const renderStockCard = (branchName: 'Mbutoh' | 'Soko') => {
+    const branchData = stockData.find(s => s.nama_cabang === branchName);
+
+    if (!branchData) {
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle>{branchName}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground">Data stok untuk hari ini tidak ditemukan.</p>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      <Card key={branchData.id} className="flex flex-col animate-fade-in-up" style={{ animationDelay: `${branchName === 'Mbutoh' ? 0.1 : 0.2}s` }}>
+        <CardHeader>
+          <CardTitle className="text-center text-2xl">{branchData.nama_cabang}</CardTitle>
+          <CardDescription className="text-center">
+            {new Date(branchData.tanggal).toLocaleDateString('id-ID', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex-grow">
+          <div className="grid grid-cols-2 gap-4 text-center">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Stok Pagi</p>
+              <p className="text-4xl font-bold">{branchData.stok_pagi}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Stok Sekarang</p>
+              <p className="text-6xl font-extrabold text-primary">{branchData.stok_sekarang}</p>
+            </div>
+          </div>
+        </CardContent>
+        <CardFooter className="flex flex-col space-y-4">
+           <div className="flex w-full justify-around gap-2">
+             <Button
+                onClick={() => openHistoryModal(branchData.id, branchData.nama_cabang)}
+                variant="ghost"
+                className="w-full"
+              >
+                Riwayat
+              </Button>
+           </div>
+          <div className="flex w-full justify-around gap-4 pt-4 border-t">
+            <Button
+              onClick={() => handleUpdateStock(branchData.id, -1)}
+              disabled={branchData.stok_sekarang <= 0}
+              variant="destructive"
+              className="w-full"
+            >
+              -1 Terjual
+            </Button>
+            <Button
+              onClick={() => handleUpdateStock(branchData.id, 1)}
+              variant="secondary"
+              className="w-full"
+            >
+              +1 Barang Datang
+            </Button>
+          </div>
+        </CardFooter>
+      </Card>
+    );
+  };
+
   return (
-    <main className="flex min-h-screen flex-col items-center p-8 bg-slate-100">
-      <h1 className="text-4xl font-bold text-gray-800 mb-2">Indah Cell</h1>
-      <p className="text-lg text-gray-600 mb-8">Penghitung Stok HP Realtime</p>
-
-      {loading && <p>Memuat data...</p>}
-      {error && <p className="text-red-500">{error}</p>}
-
-      {!loading && !error && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
-          {['Mbutoh', 'Soko'].map(branchName => {
-            const branchData = stockData.find(s => s.nama_cabang === branchName);
-            if (!branchData) {
-              return (
-                <div key={branchName} className="bg-white p-6 rounded-lg shadow-md">
-                  <h2 className="text-2xl font-bold mb-4">{branchName}</h2>
-                  <p className="text-gray-500">Data stok untuk hari ini tidak ditemukan.</p>
-                </div>
-              );
-            }
-            return (
-              <div key={branchData.id} className="bg-white p-6 rounded-lg shadow-md flex flex-col">
-                <h2 className="text-2xl font-bold mb-6 text-center text-gray-700">{branchData.nama_cabang}</h2>
-
-                <div className="flex justify-around mb-6">
-                    <div className="text-center">
-                        <p className="text-sm text-gray-500">Stok Pagi</p>
-                        <p className="text-3xl font-bold text-blue-600">{branchData.stok_pagi}</p>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-sm text-gray-500">Stok Sekarang</p>
-                        <p className="text-5xl font-extrabold text-green-600">{branchData.stok_sekarang}</p>
-                    </div>
-                </div>
-
-                <div className="mt-auto pt-4 border-t">
-                    <p className="text-center text-sm mb-2 text-gray-600">Update Transaksi:</p>
-                    <div className="flex justify-around gap-4">
-                      <button
-                        onClick={() => handleUpdateStock(branchData.id, -1)}
-                        disabled={branchData.stok_sekarang <= 0}
-                        className="w-full bg-red-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-600 transition-colors disabled:bg-red-300"
-                      >
-                        -1 Terjual
-                      </button>
-                      <button
-                        onClick={() => handleUpdateStock(branchData.id, 1)}
-                        className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition-colors"
-                      >
-                        +1 Barang Datang
-                      </button>
-                    </div>
-                </div>
-              </div>
-            );
-          })}
+    <>
+      <HistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
+        stockId={currentStockId}
+        branchName={currentBranchName}
+      />
+      <div className="container py-8">
+        <div className="text-center mb-12">
+          <h1 className="text-4xl font-bold tracking-tighter sm:text-5xl">
+            Dashboard Stok
+          </h1>
+          <p className="text-muted-foreground md:text-xl">
+            Monitor stok HP untuk semua cabang Indah Cell secara realtime.
+          </p>
         </div>
-      )}
-    </main>
+
+        {loading && <p className="text-center">Memuat data stok...</p>}
+        {error && <p className="text-center text-destructive">{error}</p>}
+
+        {!loading && !error && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl mx-auto">
+            {renderStockCard('Mbutoh')}
+            {renderStockCard('Soko')}
+          </div>
+        )}
+      </div>
+    </>
   );
 }

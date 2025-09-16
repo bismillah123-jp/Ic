@@ -6,48 +6,38 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { id, amount } = body;
 
+    // Validate input
     if (typeof id !== 'number' || typeof amount !== 'number') {
       return new NextResponse(
-        JSON.stringify({ error: 'Invalid request body. "id" and "amount" must be numbers.' }),
-        { status: 400 }
+        JSON.stringify({ error: 'Invalid request body. "id" (stock_id) and "amount" (perubahan) must be numbers.' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    // 1. Fetch the current stock
-    const { data: currentStock, error: fetchError } = await supabase
-      .from('stock')
-      .select('stok_sekarang')
-      .eq('id', id)
-      .single();
+    // Call the PostgreSQL function
+    const { error } = await supabase.rpc('update_stock_and_log_history', {
+      p_stock_id: id,
+      p_perubahan: amount,
+    });
 
-    if (fetchError || !currentStock) {
-      throw new Error(fetchError?.message || `Stock record with id ${id} not found.`);
+    if (error) {
+      // The error might be from the function itself (e.g., stock not found)
+      // or a database-level error.
+      console.error('RPC call failed:', error);
+      throw new Error(error.message);
     }
 
-    // 2. Calculate the new stock
-    const newStockAmount = currentStock.stok_sekarang + amount;
+    return NextResponse.json({ success: true, message: 'Stock updated and history logged successfully.' });
 
-    // 3. Update the stock record
-    const { data: updatedStock, error: updateError } = await supabase
-      .from('stock')
-      .update({ stok_sekarang: newStockAmount })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (updateError) {
-      throw new Error(updateError.message);
-    }
-
-    return NextResponse.json(updatedStock);
   } catch (err: unknown) {
     let errorMessage = 'An unknown error occurred';
     if (err instanceof Error) {
       errorMessage = err.message;
     }
+    console.error('Error in /api/stock/update:', errorMessage);
     return new NextResponse(
       JSON.stringify({ error: 'Failed to update stock', details: errorMessage }),
-      { status: 500 }
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }

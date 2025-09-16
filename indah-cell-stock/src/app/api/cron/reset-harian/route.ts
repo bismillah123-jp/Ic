@@ -1,63 +1,33 @@
 import { supabase } from '@/lib/supabaseClient';
 import { NextResponse } from 'next/server';
-import { Stock } from '@/types';
 
-export async function GET() {
+export async function GET(request: Request) {
+  // 1. Secure the endpoint
+  const authHeader = request.headers.get('authorization');
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return new NextResponse('Unauthorized', { status: 401 });
+  }
+
   try {
-    // Calculate yesterday's and today's date in YYYY-MM-DD format (UTC)
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+    // 2. Call the database function
+    const { data, error } = await supabase.rpc('create_daily_stock_entries');
 
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
-    const todayStr = today.toISOString().split('T')[0];
-
-    // 1. Fetch yesterday's stock data
-    const { data: yesterdayStock, error: fetchError } = await supabase
-      .from('stock')
-      .select('*')
-      .eq('tanggal', yesterdayStr);
-
-    if (fetchError) {
-      throw new Error(`Failed to fetch yesterday's stock: ${fetchError.message}`);
+    if (error) {
+      throw new Error(`RPC call failed: ${error.message}`);
     }
 
-    if (!yesterdayStock || yesterdayStock.length === 0) {
-        return NextResponse.json({ message: "No stock data from yesterday to reset." });
-    }
-
-    // 2. Prepare today's new stock records
-    const todayStock: Omit<Stock, 'id'>[] = yesterdayStock.map(stock => ({
-      nama_cabang: stock.nama_cabang,
-      produk: stock.produk,
-      stok_pagi: stock.stok_sekarang, // The core logic!
-      stok_sekarang: stock.stok_sekarang,
-      tanggal: todayStr,
-    }));
-
-    // 3. Insert today's new records
-    const { error: insertError } = await supabase
-      .from('stock')
-      .insert(todayStock);
-
-    if (insertError) {
-        // Handle potential race condition where cron runs twice
-        if (insertError.code === '23505') { // unique constraint violation
-            return NextResponse.json({ message: "Today's stock has already been set." });
-        }
-        throw new Error(`Failed to insert today's stock: ${insertError.message}`);
-    }
-
-    return NextResponse.json({ message: "Stock reset successfully for today.", data: todayStock });
+    // The function returns a text message, e.g., "Created 2 new daily stock entries."
+    return NextResponse.json({ message: data });
 
   } catch (err: unknown) {
     let errorMessage = 'An unknown error occurred';
     if (err instanceof Error) {
       errorMessage = err.message;
     }
+    console.error('Cron job /api/cron/reset-harian failed:', errorMessage);
     return new NextResponse(
       JSON.stringify({ error: 'Cron job failed', details: errorMessage }),
-      { status: 500 }
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }
