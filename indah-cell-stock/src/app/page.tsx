@@ -94,6 +94,7 @@ export default function HomePage() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'stock' },
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         (_payload) => {
           fetchStock();
         }
